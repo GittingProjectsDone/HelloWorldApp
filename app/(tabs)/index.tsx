@@ -9,7 +9,7 @@ import { usePlayerName } from '@/hooks/use-player-name';
 export default function CourtsScreen() {
   const { myName } = usePlayerName();
   const {
-    state, loading, shouldPrompt,
+    state, loading, shouldPrompt, acceptedCount, activeGroup,
     removeFromCourt, overrideAssign, toggleOverride,
     skipTurn, acceptTurn, availableQueue,
   } = usePickleballState(myName);
@@ -33,18 +33,21 @@ export default function CourtsScreen() {
       {shouldPrompt && openCourt && (
         <View style={styles.promptBanner}>
           <Text style={styles.promptText}>
-            You're up! Court {openCourt.id} has a spot open.
+            Court {openCourt.id} is open — are you playing?
+          </Text>
+          <Text style={styles.promptSub}>
+            {acceptedCount} of 4 confirmed
           </Text>
           <View style={styles.promptBtns}>
             <TouchableOpacity
               style={styles.promptAccept}
               onPress={() => acceptTurn(myName!)}>
-              <Text style={styles.promptAcceptText}>Play</Text>
+              <Text style={styles.promptAcceptText}>I'm in</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.promptSkip}
               onPress={() => skipTurn(myName!)}>
-              <Text style={styles.promptSkipText}>Let next go</Text>
+              <Text style={styles.promptSkipText}>Skip me</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -179,7 +182,8 @@ const styles = StyleSheet.create({
   promptBanner: { backgroundColor: '#E1F5EE', borderRadius: 10,
     padding: 14, marginBottom: 12, borderWidth: 0.5, borderColor: '#5DCAA5' },
   promptText: { fontSize: 14, fontWeight: '500', color: '#085041',
-    marginBottom: 10 },
+    marginBottom: 4 },
+  promptSub: { fontSize: 12, color: '#3a8a72', marginBottom: 10 },
   promptBtns: { flexDirection: 'row', gap: 10 },
   promptAccept: { flex: 1, backgroundColor: '#1D9E75', padding: 10,
     borderRadius: 8, alignItems: 'center' },
