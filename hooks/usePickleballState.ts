@@ -23,6 +23,9 @@ export type AppState = {
   history: HistoryEntry[];
   teammateHistory: Record<string, number>;
   overrideMode: boolean;
+  // Tracks who has been shown the prompt and dismissed it.
+  // Cleared when the court fills (a new game starts).
+  promptDismissed: string[];
 };
 
 const DEFAULT_STATE: AppState = {
@@ -35,6 +38,7 @@ const DEFAULT_STATE: AppState = {
   history: [],
   teammateHistory: {},
   overrideMode: false,
+  promptDismissed: [],
 };
 
 const STATE_DOC = doc(db, 'app', 'state');
@@ -46,7 +50,9 @@ export function usePickleballState(myName: string | null) {
   useEffect(() => {
     const unsub = onSnapshot(STATE_DOC, (snap) => {
       if (snap.exists()) {
-        setState(snap.data() as AppState);
+        const data = snap.data() as AppState;
+        // Handle old documents that don't have promptDismissed yet
+        setState({ ...DEFAULT_STATE, ...data });
       } else {
         setDoc(STATE_DOC, DEFAULT_STATE);
       }
@@ -72,17 +78,18 @@ export function usePickleballState(myName: string | null) {
     return s.queue.filter(p => !on.has(p));
   };
 
-  // Derived from state — no local state needed, never gets out of sync
+  // Fully derived — true only if this player should see the banner right now
   const shouldPrompt = (() => {
     if (!myName) return false;
     const avail = availableQueue(state);
     const nonSkipped = avail.filter(p => !state.skipped.includes(p));
     const openCourts = state.courts.filter(c => c.players.every(p => !p));
-    return (
-      openCourts.length > 0 &&
-      nonSkipped.length >= 4 &&
-      nonSkipped[0] === myName
-    );
+    if (openCourts.length === 0) return false;
+    if (nonSkipped.length < 4) return false;
+    if (nonSkipped[0] !== myName) return false;
+    // Don't show if this player already dismissed it for this open court
+    if ((state.promptDismissed ?? []).includes(myName)) return false;
+    return true;
   })();
 
   const getBestTeamAssignment = (
@@ -111,7 +118,7 @@ export function usePickleballState(myName: string | null) {
     return scored[0];
   };
 
-  const fillOpenCourts = async (s: AppState): Promise<AppState> => {
+  const fillOpenCourts = (s: AppState): AppState => {
     let current = { ...s };
     for (const court of current.courts) {
       const openSlots = court.players.filter(p => !p).length;
@@ -153,6 +160,8 @@ export function usePickleballState(myName: string | null) {
           skipped: current.skipped.filter(p => !top4.includes(p)),
           teammateHistory: newTeammateHistory,
           history: [newHistory, ...current.history.slice(0, 49)],
+          // Clear dismissed list when a court fills — fresh game, fresh prompts
+          promptDismissed: [],
         };
       }
     }
@@ -162,7 +171,7 @@ export function usePickleballState(myName: string | null) {
   const joinQueue = async (name: string) => {
     if (state.queue.includes(name)) return false;
     if (onCourtNames().has(name)) return false;
-    const newState = await fillOpenCourts({
+    const newState = fillOpenCourts({
       ...state,
       queue: [...state.queue, name],
     });
@@ -170,20 +179,26 @@ export function usePickleballState(myName: string | null) {
     return true;
   };
 
+  // "Let next go" — mark dismissed in Firestore so banner stays gone across re-renders
   const skipTurn = async (name: string) => {
     if (state.skipped.includes(name)) return;
-    const newState = await fillOpenCourts({
+    const withDismissed = {
       ...state,
       skipped: [...state.skipped, name],
-    });
+      promptDismissed: [...(state.promptDismissed ?? []), name],
+    };
+    const newState = fillOpenCourts(withDismissed);
     await update(newState);
   };
 
+  // "Play" — mark dismissed then fill courts (player will be picked up by fillOpenCourts)
   const acceptTurn = async (name: string) => {
-    const newState = await fillOpenCourts({
+    const withDismissed = {
       ...state,
       skipped: state.skipped.filter(p => p !== name),
-    });
+      promptDismissed: [...(state.promptDismissed ?? []), name],
+    };
+    const newState = fillOpenCourts(withDismissed);
     await update(newState);
   };
 
@@ -204,7 +219,7 @@ export function usePickleballState(myName: string | null) {
       ? state.queue
       : [...state.queue, playerName];
 
-    const newState = await fillOpenCourts({
+    const newState = fillOpenCourts({
       ...state,
       courts: newCourts,
       queue: newQueue,
