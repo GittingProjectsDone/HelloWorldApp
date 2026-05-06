@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase';
 
@@ -46,18 +46,16 @@ const STATE_DOC = doc(db, 'app', 'state');
 export function usePickleballState(myName: string | null) {
   const [state, setState] = useState<AppState>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
+  // Tracks whether the banner is actively visible this session.
+  // Prevents re-showing just because a Firestore write (e.g. override toggle) fires the snapshot.
+  const bannerActiveRef = useRef(false);
 
   useEffect(() => {
     const unsub = onSnapshot(STATE_DOC, (snap) => {
       if (snap.exists()) {
         const data = snap.data() as AppState;
-        const merged = { ...DEFAULT_STATE, ...data };
-        setState(merged);
-        // If the stored document is missing fields added after initial creation,
-        // write them back so they exist in Firestore for all clients
-        if (data.promptDismissed === undefined) {
-          setDoc(STATE_DOC, { ...merged, promptDismissed: [] });
-        }
+        // Handle old documents that don't have promptDismissed yet
+        setState({ ...DEFAULT_STATE, ...data });
       } else {
         setDoc(STATE_DOC, DEFAULT_STATE);
       }
@@ -83,8 +81,8 @@ export function usePickleballState(myName: string | null) {
     return s.queue.filter(p => !on.has(p));
   };
 
-  // Fully derived — true only if this player should see the banner right now
-  const shouldPrompt = (() => {
+  // Compute whether conditions are met for this player to be prompted
+  const promptConditionsMet = (() => {
     if (!myName) return false;
     const avail = availableQueue(state);
     const nonSkipped = avail.filter(p => !state.skipped.includes(p));
@@ -92,10 +90,20 @@ export function usePickleballState(myName: string | null) {
     if (openCourts.length === 0) return false;
     if (nonSkipped.length < 4) return false;
     if (nonSkipped[0] !== myName) return false;
-    // Don't show if this player already dismissed it for this open court
     if ((state.promptDismissed ?? []).includes(myName)) return false;
     return true;
   })();
+
+  // When conditions are first met, latch the ref on so the banner shows.
+  // Once shown, subsequent Firestore snapshots (e.g. override toggle) won't re-trigger it.
+  // When conditions are no longer met (player skipped, placed on court, etc), reset so
+  // the banner can appear again fresh next time conditions are met.
+  if (promptConditionsMet && !bannerActiveRef.current) {
+    bannerActiveRef.current = true;
+  } else if (!promptConditionsMet) {
+    bannerActiveRef.current = false;
+  }
+  const shouldPrompt = bannerActiveRef.current;
 
   const getBestTeamAssignment = (
     candidates: string[],
@@ -165,9 +173,8 @@ export function usePickleballState(myName: string | null) {
           skipped: current.skipped.filter(p => !top4.includes(p)),
           teammateHistory: newTeammateHistory,
           history: [newHistory, ...current.history.slice(0, 49)],
-          // Remove placed players from dismissed list (they're on court now)
-          // Keep skipped players' dismissals so banner doesn't reappear for them
-          promptDismissed: (current.promptDismissed ?? []).filter(p => !top4.includes(p)),
+          // Clear dismissed list when a court fills — fresh game, fresh prompts
+          promptDismissed: [],
         };
       }
     }
