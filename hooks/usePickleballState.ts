@@ -96,18 +96,24 @@ export function usePickleballState(myName: string | null) {
     s: AppState = state
   ): { team1: string[]; team2: string[] } => {
     if (candidates.length < 4) return { team1: [], team2: [] };
-    const [a, b, c, d] = candidates;
+  
+    // shuffle first so it feels random, then optimise within that
+    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    const [a, b, c, d] = shuffled;
+  
     const options = [
       { team1: [a, b], team2: [c, d] },
       { team1: [a, c], team2: [b, d] },
       { team1: [a, d], team2: [b, c] },
     ];
+  
     const scored = options.map(opt => ({
       ...opt,
       score:
         getTeammateCount(opt.team1[0], opt.team1[1], s) +
         getTeammateCount(opt.team2[0], opt.team2[1], s),
     }));
+  
     scored.sort((a, b) => a.score - b.score);
     return scored[0];
   };
