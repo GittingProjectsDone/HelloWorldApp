@@ -197,7 +197,7 @@ export function usePickleballState(myName: string | null) {
     const court = state.courts.find(c => c.id === courtId)!;
     const isOnCourt = court.players.some(p => p?.name === playerName);
     if (!isOnCourt) return;
-
+  
     const newCourts = state.courts.map(c => {
       if (c.id !== courtId) return c;
       return {
@@ -207,10 +207,16 @@ export function usePickleballState(myName: string | null) {
         ),
       };
     });
-
+  
+    // automatically put them at the back of the queue
+    const newQueue = state.queue.includes(playerName)
+      ? state.queue
+      : [...state.queue, playerName];
+  
     const newState = await fillOpenCourts({
       ...state,
       courts: newCourts,
+      queue: newQueue,
     });
     await update(newState);
   };
