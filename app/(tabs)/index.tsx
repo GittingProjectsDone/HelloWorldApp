@@ -14,7 +14,7 @@ export default function CourtsScreen() {
     skipTurn, acceptTurn, availableQueue,
   } = usePickleballState(myName);
 
-  const [overrideModal, setOverrideModal] = useState
+  const [overrideModal, setOverrideModal] = useState<
     { courtId: number; slotIdx: number } | null
   >(null);
 
