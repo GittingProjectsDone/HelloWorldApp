@@ -1,41 +1,73 @@
 import { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  Modal, FlatList, ActivityIndicator, Alert
+  View, Text, StyleSheet, TouchableOpacity, FlatList,
+  Modal, Alert, ActivityIndicator
 } from 'react-native';
 import { usePickleballState } from '@/hooks/usePickleballState';
+import { usePlayerName } from '@/hooks/use-player-name';
 
 export default function CourtsScreen() {
+  const { myName } = usePlayerName();
   const {
-    state, loading, availablePlayers,
-    assignPlayer, removeFromCourt, suggestNext, scorePlayer
-  } = usePickleballState();
+    state, loading, pendingCourtId, setPendingCourtId,
+    removeFromCourt, overrideAssign, toggleOverride,
+    skipTurn, acceptTurn, availableQueue,
+  } = usePickleballState(myName);
 
-  const [modal, setModal] = useState<{courtId:number, slotIdx:number} | null>(null);
+  const [overrideModal, setOverrideModal] = useState
+    { courtId: number; slotIdx: number } | null
+  >(null);
 
   if (loading) return (
-    <View style={styles.center}>
-      <ActivityIndicator size="large" />
-    </View>
+    <View style={styles.center}><ActivityIndicator size="large" /></View>
   );
 
-  const avail = availablePlayers();
-  const activeCourt = modal ? state.courts.find(c => c.id === modal.courtId)! : null;
-  const existing = activeCourt
-    ? activeCourt.players.filter(Boolean) as string[]
-    : [];
-  const sorted = avail.slice().sort(
-    (a, b) => scorePlayer(a, existing) - scorePlayer(b, existing)
-  );
+  const queueForOverride = availableQueue();
 
   return (
     <View style={styles.container}>
+
+      {pendingCourtId && (
+        <View style={styles.promptBanner}>
+          <Text style={styles.promptText}>
+            You're up! Court {pendingCourtId} has a spot open.
+          </Text>
+          <View style={styles.promptBtns}>
+            <TouchableOpacity
+              style={styles.promptAccept}
+              onPress={() => acceptTurn(myName!)}>
+              <Text style={styles.promptAcceptText}>Play</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.promptSkip}
+              onPress={() => {
+                setPendingCourtId(null);
+                skipTurn(myName!);
+              }}>
+              <Text style={styles.promptSkipText}>Let next go</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.overrideBtn,
+          state.overrideMode && styles.overrideBtnActive]}
+        onPress={toggleOverride}>
+        <Text style={[styles.overrideBtnText,
+          state.overrideMode && styles.overrideBtnTextActive]}>
+          {state.overrideMode ? 'Override ON — tap to disable' : 'Manual override'}
+        </Text>
+      </TouchableOpacity>
+
       <FlatList
         data={state.courts}
         keyExtractor={c => String(c.id)}
         renderItem={({ item: court }) => {
           const filled = court.players.filter(Boolean).length;
-          const suggested = suggestNext(court);
+          const team1 = court.players.slice(0, 2);
+          const team2 = court.players.slice(2, 4);
+
           return (
             <View style={styles.courtCard}>
               <View style={styles.courtHeader}>
@@ -48,65 +80,90 @@ export default function CourtsScreen() {
                   </Text>
                 </View>
               </View>
-              {suggested && filled < 4 && (
-                <Text style={styles.suggestion}>
-                  Suggested next: {suggested}
-                </Text>
+
+              {[{ label: 'Team 1', players: team1, offset: 0 },
+                { label: 'Team 2', players: team2, offset: 2 }].map(
+                ({ label, players, offset }) => (
+                  <View key={label} style={styles.teamSection}>
+                    <Text style={styles.teamLabel}>{label}</Text>
+                    <View style={styles.slots}>
+                      {players.map((p, i) => {
+                        const slotIdx = offset + i;
+                        const isMe = p?.name === myName;
+                        return (
+                          <TouchableOpacity
+                            key={slotIdx}
+                            style={[styles.slot,
+                              p ? styles.slotFilled : styles.slotEmpty,
+                              isMe && styles.slotMe]}
+                            onPress={() => {
+                              if (state.overrideMode) {
+                                setOverrideModal({ courtId: court.id, slotIdx });
+                              } else if (isMe) {
+                                Alert.alert(
+                                  'Leave court?',
+                                  'Remove yourself from this court?',
+                                  [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Leave', style: 'destructive',
+                                      onPress: () => removeFromCourt(court.id, myName!) },
+                                  ]
+                                );
+                              }
+                            }}
+                          >
+                            <Text style={[styles.slotText,
+                              !p && styles.slotEmptyText]}>
+                              {p ? p.name : '—'}
+                            </Text>
+                            {isMe && !state.overrideMode && (
+                              <Text style={styles.slotYou}>you</Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )
               )}
-              <View style={styles.slots}>
-                {court.players.map((player, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    style={[styles.slot, player ? styles.slotFilled : styles.slotEmpty]}
-                    onPress={() => player
-                      ? Alert.alert('Remove player?', `Remove ${player}?`, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Remove', style: 'destructive',
-                            onPress: () => removeFromCourt(court.id, i) }
-                        ])
-                      : setModal({ courtId: court.id, slotIdx: i })
-                    }
-                  >
-                    <Text style={player ? styles.slotNameText : styles.slotEmptyText}>
-                      {player || '+ Add'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
             </View>
           );
         }}
       />
 
-      <Modal visible={!!modal} transparent animationType="fade">
+      <Modal visible={!!overrideModal} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>
-              Add to Court {modal?.courtId}
+              Override — Court {overrideModal?.courtId} Slot {(overrideModal?.slotIdx ?? 0) + 1}
             </Text>
-            {sorted.length === 0
-              ? <Text style={styles.emptyText}>No players in queue</Text>
-              : sorted.map(name => (
-                <TouchableOpacity
-                  key={name}
-                  style={styles.modalRow}
-                  onPress={() => {
-                    assignPlayer(modal!.courtId, modal!.slotIdx, name);
-                    setModal(null);
-                  }}
-                >
-                  <Text style={styles.modalName}>{name}</Text>
-                  <Text style={styles.modalInfo}>
-                    {scorePlayer(name, existing) === 0
-                      ? 'Fresh matchup'
-                      : `Played together ${scorePlayer(name, existing)}x`}
-                  </Text>
-                </TouchableOpacity>
-              ))
-            }
+            <TouchableOpacity
+              style={styles.modalRow}
+              onPress={() => {
+                const slot = overrideModal!;
+                const court = state.courts.find(c => c.id === slot.courtId)!;
+                const current = court.players[slot.slotIdx];
+                if (current) overrideAssign(slot.courtId, slot.slotIdx, null);
+                setOverrideModal(null);
+              }}>
+              <Text style={[styles.modalName, { color: '#A32D2D' }]}>
+                Clear this slot
+              </Text>
+            </TouchableOpacity>
+            {queueForOverride.map(name => (
+              <TouchableOpacity
+                key={name}
+                style={styles.modalRow}
+                onPress={() => {
+                  overrideAssign(overrideModal!.courtId, overrideModal!.slotIdx, name);
+                  setOverrideModal(null);
+                }}>
+                <Text style={styles.modalName}>{name}</Text>
+              </TouchableOpacity>
+            ))}
             <TouchableOpacity
               style={styles.cancelBtn}
-              onPress={() => setModal(null)}>
+              onPress={() => setOverrideModal(null)}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -119,10 +176,27 @@ export default function CourtsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  promptBanner: { backgroundColor: '#E1F5EE', borderRadius: 10,
+    padding: 14, marginBottom: 12, borderWidth: 0.5, borderColor: '#5DCAA5' },
+  promptText: { fontSize: 14, fontWeight: '500', color: '#085041',
+    marginBottom: 10 },
+  promptBtns: { flexDirection: 'row', gap: 10 },
+  promptAccept: { flex: 1, backgroundColor: '#1D9E75', padding: 10,
+    borderRadius: 8, alignItems: 'center' },
+  promptAcceptText: { color: '#fff', fontWeight: '500' },
+  promptSkip: { flex: 1, borderWidth: 0.5, borderColor: '#5DCAA5',
+    padding: 10, borderRadius: 8, alignItems: 'center' },
+  promptSkipText: { color: '#085041', fontWeight: '500' },
+  overrideBtn: { borderWidth: 0.5, borderColor: '#ddd', borderRadius: 8,
+    padding: 10, alignItems: 'center', marginBottom: 12,
+    backgroundColor: '#fff' },
+  overrideBtnActive: { backgroundColor: '#FAEEDA', borderColor: '#EF9F27' },
+  overrideBtnText: { fontSize: 13, color: '#666' },
+  overrideBtnTextActive: { color: '#633806', fontWeight: '500' },
   courtCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14,
     marginBottom: 12, borderWidth: 0.5, borderColor: '#ddd' },
   courtHeader: { flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 8 },
+    alignItems: 'center', marginBottom: 10 },
   courtName: { fontSize: 16, fontWeight: '500' },
   badge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
   badgeGreen: { backgroundColor: '#E1F5EE' },
@@ -130,25 +204,27 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12 },
   badgeTextGreen: { color: '#085041' },
   badgeTextBlue: { color: '#0C447C' },
-  suggestion: { fontSize: 12, color: '#854F0B', backgroundColor: '#FAEEDA',
-    padding: 6, borderRadius: 6, marginBottom: 8 },
-  slots: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  slot: { width: '47%', padding: 10, borderRadius: 8, alignItems: 'center' },
+  teamSection: { marginBottom: 8 },
+  teamLabel: { fontSize: 11, color: '#999', marginBottom: 4,
+    textTransform: 'uppercase', letterSpacing: 0.5 },
+  slots: { flexDirection: 'row', gap: 8 },
+  slot: { flex: 1, padding: 10, borderRadius: 8, alignItems: 'center',
+    flexDirection: 'row', justifyContent: 'center', gap: 6 },
   slotFilled: { backgroundColor: '#f0f0f0', borderWidth: 0.5,
-    borderColor: '#ccc' },
-  slotEmpty: { borderWidth: 1, borderColor: '#ccc', borderStyle: 'dashed' },
-  slotNameText: { fontSize: 14, fontWeight: '500' },
-  slotEmptyText: { fontSize: 13, color: '#999' },
+    borderColor: '#ddd' },
+  slotEmpty: { borderWidth: 1, borderColor: '#ddd', borderStyle: 'dashed' },
+  slotMe: { backgroundColor: '#E6F1FB', borderColor: '#85B7EB',
+    borderStyle: 'solid' },
+  slotText: { fontSize: 14, fontWeight: '500', color: '#111' },
+  slotEmptyText: { color: '#bbb' },
+  slotYou: { fontSize: 11, color: '#378ADD' },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center', alignItems: 'center' },
   modalBox: { backgroundColor: '#fff', borderRadius: 14, padding: 16,
     width: '85%', maxHeight: '70%' },
-  modalTitle: { fontSize: 16, fontWeight: '500', marginBottom: 12 },
-  modalRow: { padding: 12, borderBottomWidth: 0.5, borderColor: '#eee',
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  modalName: { fontSize: 14, fontWeight: '500' },
-  modalInfo: { fontSize: 12, color: '#888' },
-  emptyText: { color: '#999', textAlign: 'center', padding: 16 },
+  modalTitle: { fontSize: 15, fontWeight: '500', marginBottom: 12 },
+  modalRow: { padding: 12, borderBottomWidth: 0.5, borderColor: '#eee' },
+  modalName: { fontSize: 14 },
   cancelBtn: { marginTop: 12, padding: 12, alignItems: 'center',
     borderWidth: 0.5, borderColor: '#ddd', borderRadius: 8 },
   cancelText: { color: '#666', fontSize: 14 },
