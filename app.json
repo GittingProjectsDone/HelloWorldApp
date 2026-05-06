@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "HelloWorldApp",
-    "slug": "HelloWorldApp",
+    "name": "Pickleball Queue",
+    "slug": "pickleball-queue",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "helloworldapp",
+    "scheme": "pickleballqueue",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
