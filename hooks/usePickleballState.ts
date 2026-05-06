@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase';
 
@@ -43,6 +43,7 @@ export function usePickleballState(myName: string | null) {
   const [state, setState] = useState<AppState>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
   const [pendingCourtId, setPendingCourtId] = useState<number | null>(null);
+  const promptDismissedRef = useRef(false);
 
   useEffect(() => {
     const unsub = onSnapshot(STATE_DOC, (snap) => {
@@ -70,9 +71,6 @@ export function usePickleballState(myName: string | null) {
   const getTeammateCount = (a: string, b: string, s: AppState = state) =>
     s.teammateHistory[pairKey(a, b)] || 0;
 
-  const scoreTeammate = (player: string, teammate: string) =>
-    getTeammateCount(player, teammate);
-
   const onCourtNames = (s: AppState = state) =>
     new Set(s.courts.flatMap(c => c.players.filter(Boolean).map(p => p!.name)));
 
@@ -83,10 +81,16 @@ export function usePickleballState(myName: string | null) {
 
   const checkIfShouldPrompt = (s: AppState, name: string) => {
     const avail = availableQueue(s);
-    const openCourts = s.courts.filter(c => c.players.some(p => !p));
-    if (openCourts.length === 0) return;
+    const openCourts = s.courts.filter(c => c.players.every(p => !p));
     const nonSkipped = avail.filter(p => !s.skipped.includes(p));
-    if (nonSkipped[0] === name) {
+    // Reset dismissed flag if the player is no longer in position to be prompted
+    // (e.g. someone else joined ahead, or courts filled) — so next time they reach
+    // the front of the queue they get prompted again
+    if (openCourts.length === 0 || nonSkipped[0] !== name || nonSkipped.length < 4) {
+      promptDismissedRef.current = false;
+      return;
+    }
+    if (!promptDismissedRef.current) {
       setPendingCourtId(openCourts[0].id);
     }
   };
@@ -96,24 +100,23 @@ export function usePickleballState(myName: string | null) {
     s: AppState = state
   ): { team1: string[]; team2: string[] } => {
     if (candidates.length < 4) return { team1: [], team2: [] };
-  
-    // shuffle first so it feels random, then optimise within that
+
     const shuffled = [...candidates].sort(() => Math.random() - 0.5);
     const [a, b, c, d] = shuffled;
-  
+
     const options = [
       { team1: [a, b], team2: [c, d] },
       { team1: [a, c], team2: [b, d] },
       { team1: [a, d], team2: [b, c] },
     ];
-  
+
     const scored = options.map(opt => ({
       ...opt,
       score:
         getTeammateCount(opt.team1[0], opt.team1[1], s) +
         getTeammateCount(opt.team2[0], opt.team2[1], s),
     }));
-  
+
     scored.sort((a, b) => a.score - b.score);
     return scored[0];
   };
@@ -122,13 +125,12 @@ export function usePickleballState(myName: string | null) {
     let current = { ...s };
     for (const court of current.courts) {
       const openSlots = court.players.filter(p => !p).length;
-      if (openSlots === 0) continue;
+      if (openSlots !== 4) continue;
 
       const avail = availableQueue(current);
       const nonSkipped = avail.filter(p => !current.skipped.includes(p));
 
-      if (openSlots === 4 && nonSkipped.length >= 4) {
-        // Completely empty court — assign full teams with history optimisation
+      if (nonSkipped.length >= 4) {
         const top4 = nonSkipped.slice(0, 4);
         const { team1, team2 } = getBestTeamAssignment(top4, current);
         const newPlayers: CourtPlayer[] = [
@@ -162,28 +164,6 @@ export function usePickleballState(myName: string | null) {
           teammateHistory: newTeammateHistory,
           history: [newHistory, ...current.history.slice(0, 49)],
         };
-      } else if (openSlots > 0 && openSlots < 4 && nonSkipped.length >= openSlots) {
-        // Partially filled court — pull from queue one-by-one to fill the gaps
-        const toAdd = nonSkipped.slice(0, openSlots);
-        const updatedPlayers = [...court.players] as (CourtPlayer | null)[];
-        let queueIdx = 0;
-        for (let i = 0; i < updatedPlayers.length; i++) {
-          if (!updatedPlayers[i] && queueIdx < toAdd.length) {
-            updatedPlayers[i] = {
-              name: toAdd[queueIdx],
-              team: i < 2 ? 1 : 2,
-            };
-            queueIdx++;
-          }
-        }
-        current = {
-          ...current,
-          courts: current.courts.map(c =>
-            c.id === court.id ? { ...c, players: updatedPlayers } : c
-          ),
-          queue: current.queue.filter(p => !toAdd.includes(p)),
-          skipped: current.skipped.filter(p => !toAdd.includes(p)),
-        };
       }
     }
     return current;
@@ -202,12 +182,15 @@ export function usePickleballState(myName: string | null) {
 
   const skipTurn = async (name: string) => {
     if (state.skipped.includes(name)) return;
+    promptDismissedRef.current = true;
+    setPendingCourtId(null);
     const newSkipped = [...state.skipped, name];
     const newState = await fillOpenCourts({ ...state, skipped: newSkipped });
     await update(newState);
   };
 
   const acceptTurn = async (name: string) => {
+    promptDismissedRef.current = true;
     setPendingCourtId(null);
     const newState = await fillOpenCourts({
       ...state,
@@ -220,7 +203,7 @@ export function usePickleballState(myName: string | null) {
     const court = state.courts.find(c => c.id === courtId)!;
     const isOnCourt = court.players.some(p => p?.name === playerName);
     if (!isOnCourt) return;
-  
+
     const newCourts = state.courts.map(c => {
       if (c.id !== courtId) return c;
       return {
@@ -230,12 +213,11 @@ export function usePickleballState(myName: string | null) {
         ),
       };
     });
-  
-    // automatically put them at the back of the queue
+
     const newQueue = state.queue.includes(playerName)
       ? state.queue
       : [...state.queue, playerName];
-  
+
     const newState = await fillOpenCourts({
       ...state,
       courts: newCourts,
