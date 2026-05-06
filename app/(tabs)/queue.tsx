@@ -1,63 +1,65 @@
 import { useState } from 'react';
 import {
-  View, Text, StyleSheet, TextInput,
-  TouchableOpacity, FlatList, ActivityIndicator, Alert
+  View, Text, StyleSheet, FlatList,
+  TouchableOpacity, ActivityIndicator, Alert
 } from 'react-native';
 import { usePickleballState } from '@/hooks/usePickleballState';
+import { usePlayerName } from '@/hooks/use-player-name';
 
 export default function QueueScreen() {
-  const { state, loading, availablePlayers,
-    addToQueue, removeFromQueue } = usePickleballState();
-  const [name, setName] = useState('');
+  const { myName } = usePlayerName();
+  const { state, loading, joinQueue, availableQueue, isOnCourt, isInQueue }
+    = usePickleballState(myName);
 
   if (loading) return (
     <View style={styles.center}><ActivityIndicator size="large" /></View>
   );
 
-  const avail = availablePlayers();
-
-  const handleAdd = async () => {
-    if (!name.trim()) return;
-    const ok = await addToQueue(name.trim());
-    if (ok === false) Alert.alert('Already added',
-      `${name.trim()} is already in the queue or on a court.`);
-    else setName('');
-  };
+  const queue = availableQueue();
+  const alreadyIn = isInQueue(myName!) || isOnCourt(myName!);
 
   return (
     <View style={styles.container}>
-      <View style={styles.addRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Player name"
-          value={name}
-          onChangeText={setName}
-          onSubmitEditing={handleAdd}
-          returnKeyType="done"
-        />
-        <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
-          <Text style={styles.addBtnText}>+ Add</Text>
+      {!alreadyIn && (
+        <TouchableOpacity
+          style={styles.joinBtn}
+          onPress={() => joinQueue(myName!)}>
+          <Text style={styles.joinBtnText}>+ Join queue</Text>
         </TouchableOpacity>
-      </View>
+      )}
 
-      {avail.length === 0
+      {isOnCourt(myName!) && (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoText}>
+            You are currently on a court. Leave the court to re-join the queue.
+          </Text>
+        </View>
+      )}
+
+      {isInQueue(myName!) && (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoText}>
+            You are in the queue at position{' '}
+            {queue.indexOf(myName!) + 1}.
+          </Text>
+        </View>
+      )}
+
+      {queue.length === 0
         ? <Text style={styles.empty}>Queue is empty.</Text>
         : <FlatList
-            data={avail}
+            data={queue}
             keyExtractor={p => p}
             renderItem={({ item, index }) => (
-              <View style={styles.row}>
+              <View style={[styles.row, item === myName && styles.rowMe]}>
                 <Text style={styles.pos}>{index + 1}</Text>
                 <Text style={styles.playerName}>{item}</Text>
-                <TouchableOpacity onPress={() =>
-                  Alert.alert('Remove?', `Remove ${item} from queue?`, [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Remove', style: 'destructive',
-                      onPress: () => removeFromQueue(item) }
-                  ])
-                }>
-                  <Text style={styles.removeBtn}>×</Text>
-                </TouchableOpacity>
+                {state.skipped.includes(item) && (
+                  <Text style={styles.skippedTag}>passed</Text>
+                )}
+                {item === myName && (
+                  <Text style={styles.youTag}>you</Text>
+                )}
               </View>
             )}
           />
@@ -69,17 +71,20 @@ export default function QueueScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  addRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  input: { flex: 1, backgroundColor: '#fff', borderWidth: 0.5,
-    borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 15 },
-  addBtn: { backgroundColor: '#4f46e5', paddingHorizontal: 16,
-    borderRadius: 8, justifyContent: 'center' },
-  addBtnText: { color: '#fff', fontWeight: '500', fontSize: 14 },
+  joinBtn: { backgroundColor: '#4f46e5', padding: 14, borderRadius: 10,
+    alignItems: 'center', marginBottom: 16 },
+  joinBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  infoBanner: { backgroundColor: '#E6F1FB', borderRadius: 8, padding: 12,
+    marginBottom: 12, borderWidth: 0.5, borderColor: '#85B7EB' },
+  infoText: { fontSize: 13, color: '#0C447C' },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     borderRadius: 10, padding: 12, marginBottom: 8,
     borderWidth: 0.5, borderColor: '#ddd' },
+  rowMe: { backgroundColor: '#E6F1FB', borderColor: '#85B7EB' },
   pos: { fontSize: 13, color: '#999', minWidth: 24 },
   playerName: { flex: 1, fontSize: 15 },
-  removeBtn: { fontSize: 22, color: '#bbb', paddingLeft: 8 },
-  empty: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 14 },
+  skippedTag: { fontSize: 11, color: '#854F0B', backgroundColor: '#FAEEDA',
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
+  youTag: { fontSize: 11, color: '#0C447C', backgroundColor: '#E6F1FB',
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginLeft: 6 },
 });
