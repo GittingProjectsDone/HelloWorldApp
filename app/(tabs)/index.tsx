@@ -9,7 +9,7 @@ import { usePlayerName } from '@/hooks/use-player-name';
 export default function CourtsScreen() {
   const { myName } = usePlayerName();
   const {
-    state, loading, pendingCourtId, setPendingCourtId,
+    state, loading, shouldPrompt,
     removeFromCourt, overrideAssign, toggleOverride,
     skipTurn, acceptTurn, availableQueue,
   } = usePickleballState(myName);
@@ -24,13 +24,16 @@ export default function CourtsScreen() {
 
   const queueForOverride = availableQueue();
 
+  // Find the first fully empty court to show in the banner
+  const openCourt = state.courts.find(c => c.players.every(p => !p));
+
   return (
     <View style={styles.container}>
 
-      {pendingCourtId && (
+      {shouldPrompt && openCourt && (
         <View style={styles.promptBanner}>
           <Text style={styles.promptText}>
-            You're up! Court {pendingCourtId} has a spot open.
+            You're up! Court {openCourt.id} has a spot open.
           </Text>
           <View style={styles.promptBtns}>
             <TouchableOpacity
@@ -40,10 +43,7 @@ export default function CourtsScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.promptSkip}
-              onPress={() => {
-                setPendingCourtId(null);
-                skipTurn(myName!);
-              }}>
+              onPress={() => skipTurn(myName!)}>
               <Text style={styles.promptSkipText}>Let next go</Text>
             </TouchableOpacity>
           </View>
