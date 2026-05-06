@@ -174,7 +174,7 @@ export function usePickleballState(myName: string | null) {
           teammateHistory: newTeammateHistory,
           history: [newHistory, ...current.history.slice(0, 49)],
           // Clear dismissed list when a court fills — fresh game, fresh prompts
-          promptDismissed: [],
+          promptDismissed: (current.promptDismissed ?? []).filter(p => !top4.includes(p)),
         };
       }
     }
