@@ -51,8 +51,13 @@ export function usePickleballState(myName: string | null) {
     const unsub = onSnapshot(STATE_DOC, (snap) => {
       if (snap.exists()) {
         const data = snap.data() as AppState;
-        // Handle old documents that don't have promptDismissed yet
-        setState({ ...DEFAULT_STATE, ...data });
+        const merged = { ...DEFAULT_STATE, ...data };
+        setState(merged);
+        // If the stored document is missing fields added after initial creation,
+        // write them back so they exist in Firestore for all clients
+        if (data.promptDismissed === undefined) {
+          setDoc(STATE_DOC, { ...merged, promptDismissed: [] });
+        }
       } else {
         setDoc(STATE_DOC, DEFAULT_STATE);
       }
@@ -160,8 +165,8 @@ export function usePickleballState(myName: string | null) {
           skipped: current.skipped.filter(p => !top4.includes(p)),
           teammateHistory: newTeammateHistory,
           history: [newHistory, ...current.history.slice(0, 49)],
-          // Remove placed players from dismissed list (they're on court now, not in queue)
-          // Keep everyone else's dismissal so the banner doesn't reappear
+          // Remove placed players from dismissed list (they're on court now)
+          // Keep skipped players' dismissals so banner doesn't reappear for them
           promptDismissed: (current.promptDismissed ?? []).filter(p => !top4.includes(p)),
         };
       }
