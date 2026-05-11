@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/firebase';
 
 export type CourtPlayer = { name: string; team: 1 | 2 };
@@ -179,13 +179,22 @@ export function usePickleballState(myName: string | null) {
   };
 
   const acceptTurn = async (name: string) => {
-    if ((state.accepted ?? []).includes(name)) return;
-    const withAccepted: AppState = {
-      ...state,
-      accepted: [...(state.accepted ?? []), name],
-      promptDismissed: [...(state.promptDismissed ?? []), name],
-    };
-    await update(tryFillWithAccepted(withAccepted));
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(STATE_DOC);
+      const s: AppState = snap.exists()
+        ? { ...DEFAULT_STATE, ...(snap.data() as AppState) }
+        : DEFAULT_STATE;
+
+      if ((s.accepted ?? []).includes(name)) return;
+
+      const withAccepted: AppState = {
+        ...s,
+        accepted: [...(s.accepted ?? []), name],
+        promptDismissed: [...(s.promptDismissed ?? []), name],
+      };
+
+      transaction.set(STATE_DOC, tryFillWithAccepted(withAccepted));
+    });
   };
 
   const skipTurn = async (name: string) => {
