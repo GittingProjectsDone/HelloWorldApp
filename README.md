@@ -17,7 +17,7 @@ A real-time mobile app for managing pickleball court queues. Built with React Na
 - [Expo](https://expo.dev) (SDK 54) with file-based routing via expo-router
 - [React Native](https://reactnative.dev)
 - [Firebase Firestore](https://firebase.google.com/docs/firestore) for real-time shared state
-- [AsyncStorage](https://react-native-async-storage.github.io/async-storage/) for local player name persistence
+- [AsyncStorage](https://react-native-async-storage.github.io/2.0/) for local player name persistence
 - TypeScript
 
 ## Project Structure
