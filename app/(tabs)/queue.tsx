@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, ActivityIndicator, Alert
+  TouchableOpacity, ActivityIndicator, Alert, Platform
 } from 'react-native';
 import { usePickleballState } from '@/hooks/usePickleballState';
 import { usePlayerName } from '@/hooks/use-player-name';
@@ -18,14 +18,20 @@ export default function QueueScreen() {
   const alreadyIn = isInQueue(myName!) || isOnCourt(myName!);
 
   const handleLeave = () => {
-    Alert.alert(
-      'Leave queue?',
-      'Remove yourself from the queue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Leave', style: 'destructive', onPress: () => leaveQueue(myName!) },
-      ]
-    );
+    if (Platform.OS === 'web') {
+      if (window.confirm('Remove yourself from the queue?')) {
+        leaveQueue(myName!);
+      }
+    } else {
+      Alert.alert(
+        'Leave queue?',
+        'Remove yourself from the queue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Leave', style: 'destructive', onPress: () => leaveQueue(myName!) },
+        ]
+      );
+    }
   };
 
   return (

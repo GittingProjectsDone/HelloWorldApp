@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
-  Modal, Alert, ActivityIndicator
+  Modal, Alert, ActivityIndicator, Platform
 } from 'react-native';
 import { usePickleballState } from '@/hooks/usePickleballState';
 import { usePlayerName } from '@/hooks/use-player-name';
@@ -103,15 +103,21 @@ export default function CourtsScreen() {
                               if (state.overrideMode) {
                                 setOverrideModal({ courtId: court.id, slotIdx });
                               } else if (isMe) {
-                                Alert.alert(
-                                  'Leave court?',
-                                  'Remove yourself from this court?',
-                                  [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Leave', style: 'destructive',
-                                      onPress: () => removeFromCourt(court.id, myName!) },
-                                  ]
-                                );
+                                if (Platform.OS === 'web') {
+                                  if (window.confirm('Remove yourself from this court?')) {
+                                    removeFromCourt(court.id, myName!);
+                                  }
+                                } else {
+                                  Alert.alert(
+                                    'Leave court?',
+                                    'Remove yourself from this court?',
+                                    [
+                                      { text: 'Cancel', style: 'cancel' },
+                                      { text: 'Leave', style: 'destructive',
+                                        onPress: () => removeFromCourt(court.id, myName!) },
+                                    ]
+                                  );
+                                }
                               }
                             }}
                           >
