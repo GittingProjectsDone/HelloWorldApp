@@ -5,7 +5,7 @@ A real-time mobile app for managing pickleball court queues. Built with React Na
 ## Features
 
 - **Real-time sync** — all phones see the same queue and court state instantly via Firebase Firestore
-- **Auto court assignment** — when 4 players are in the queue and a court is open, they're automatically assigned to teams
+- **Auto court assignment** — when 4 players in the queue decide to play on a court, they're automatically assigned to teams
 - **Smart team balancing** — tracks teammate history to avoid pairing the same players together repeatedly
 - **"You're up" banner** — the first player in the queue gets a prompt to accept their spot or let the next person go
 - **Manual override** — any player can enable override mode to manually add/remove players
