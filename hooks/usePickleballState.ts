@@ -75,16 +75,55 @@ export function usePickleballState(myName: string | null) {
   const bannerActiveRef = useRef(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(STATE_DOC, (snap) => {
+    const unsub = onSnapshot(STATE_DOC, async (snap) => {
       if (snap.exists()) {
-        setState({ ...DEFAULT_STATE, ...snap.data() as AppState });
+        const data = { ...DEFAULT_STATE, ...snap.data() as AppState };
+        setState(data);
+
+        // If 4 players have accepted and there's an open court, fill it.
+        // Guard: only the first accepted player's device runs the write,
+        // preventing every phone from firing simultaneously.
+        const group = getActiveGroup(data);
+        const confirmed = (data.accepted ?? []).filter(p => group.includes(p));
+        const hasOpen = data.courts.some(c => c.players.every(p => !p));
+        const iAmFirst = myName != null && confirmed[0] === myName;
+
+        if (confirmed.length >= 4 && hasOpen && iAmFirst) {
+          await runTransaction(db, async (transaction) => {
+            const freshSnap = await transaction.get(STATE_DOC);
+            if (!freshSnap.exists()) return;
+            const fresh = { ...DEFAULT_STATE, ...freshSnap.data() as AppState };
+            const filled = tryFillWithAccepted(fresh);
+            if (filled !== fresh) transaction.set(STATE_DOC, filled);
+          });
+        }
+
+        // If skipped players exist but there aren't enough non-skipped players
+        // left to fill a court, reset skipped so they re-enter the prompt pool.
+        // Guard to first available queue player to avoid multiple writes.
+        const avail = getAvailableQueue(data);
+        const nonSkipped = avail.filter(p => !(data.skipped ?? []).includes(p));
+        const hasStuckSkips = (data.skipped ?? []).length > 0 && nonSkipped.length < 4;
+        if (hasStuckSkips && myName != null && avail[0] === myName) {
+          await setDoc(STATE_DOC, { ...data, skipped: [], accepted: [] });
+        }
+
+        // If there are no longer enough non-skipped players to fill a court,
+        // reset skipped so those players can be prompted again next time.
+        const nonSkippedAvail = getAvailableQueue(data).filter(
+          p => !(data.skipped ?? []).includes(p)
+        );
+        const needsSkipReset = (data.skipped ?? []).length > 0 && nonSkippedAvail.length < 4;
+        if (needsSkipReset && myName === getAvailableQueue(data)[0]) {
+          await setDoc(STATE_DOC, { ...data, skipped: [], accepted: [] });
+        }
       } else {
         setDoc(STATE_DOC, DEFAULT_STATE);
       }
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [myName]);
 
   const update = async (newState: AppState) => {
     await setDoc(STATE_DOC, newState);
@@ -239,14 +278,15 @@ export function usePickleballState(myName: string | null) {
       ? state.queue
       : [...state.queue, playerName];
 
-    // Clear this player's dismissal so they get prompted again
-    const newPromptDismissed = (state.promptDismissed ?? []).filter(p => p !== playerName);
-
+    // A court just opened up — reset accepted/skipped so the prompt
+    // round starts fresh for whoever is now at the front of the queue.
     await update({
       ...state,
       courts: newCourts,
       queue: newQueue,
-      promptDismissed: newPromptDismissed,
+      accepted: [],
+      skipped: [],
+      promptDismissed: [],
     });
   };
 
