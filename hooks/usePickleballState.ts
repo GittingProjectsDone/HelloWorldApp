@@ -52,6 +52,17 @@ const getAvailableQueue = (s: AppState): string[] => {
   return s.queue.filter(p => !on.has(p));
 };
 
+// Returns the single next player who should see the banner
+// (first in queue who hasn't accepted or skipped yet)
+const getActivePlayer = (s: AppState): string | null => {
+  const avail = getAvailableQueue(s);
+  const nonResponded = avail.filter(
+    p => !(s.skipped ?? []).includes(p) && !(s.accepted ?? []).includes(p)
+  );
+  return nonResponded[0] ?? null;
+};
+
+// Returns accepted + remaining non-skipped players to check if 4 can be filled
 const getActiveGroup = (s: AppState): string[] => {
   const avail = getAvailableQueue(s);
   const nonSkipped = avail.filter(p => !(s.skipped ?? []).includes(p));
@@ -149,14 +160,15 @@ export function usePickleballState(myName: string | null) {
 
   // Derived values from current state
   const activeGroup = getActiveGroup(state);
+  const activePlayer = getActivePlayer(state);
   const hasOpenCourt = state.courts.some(c => c.players.every(p => !p));
 
+  // Only the single next player in line sees the banner
   const promptConditionsMet = (() => {
     if (!myName) return false;
     if (!hasOpenCourt) return false;
     if (activeGroup.length < 4) return false;
-    if (!activeGroup.includes(myName)) return false;
-    if ((state.promptDismissed ?? []).includes(myName)) return false;
+    if (myName !== activePlayer) return false;
     return true;
   })();
 
@@ -178,21 +190,27 @@ export function usePickleballState(myName: string | null) {
     return true;
   };
 
+  const leaveQueue = async (name: string) => {
+    if (!state.queue.includes(name)) return;
+    await update({
+      ...state,
+      queue: state.queue.filter(p => p !== name),
+      skipped: (state.skipped ?? []).filter(p => p !== name),
+      accepted: (state.accepted ?? []).filter(p => p !== name),
+    });
+  };
+
   const acceptTurn = async (name: string) => {
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(STATE_DOC);
       const s: AppState = snap.exists()
         ? { ...DEFAULT_STATE, ...(snap.data() as AppState) }
         : DEFAULT_STATE;
-
       if ((s.accepted ?? []).includes(name)) return;
-
       const withAccepted: AppState = {
         ...s,
         accepted: [...(s.accepted ?? []), name],
-        promptDismissed: [...(s.promptDismissed ?? []), name],
       };
-
       transaction.set(STATE_DOC, tryFillWithAccepted(withAccepted));
     });
   };
@@ -203,7 +221,6 @@ export function usePickleballState(myName: string | null) {
       ...state,
       skipped: [...(state.skipped ?? []), name],
       accepted: (state.accepted ?? []).filter(p => p !== name),
-      promptDismissed: [...(state.promptDismissed ?? []), name],
     });
   };
 
@@ -258,8 +275,8 @@ export function usePickleballState(myName: string | null) {
   const availableQueue = () => getAvailableQueue(state);
 
   return {
-    state, loading, shouldPrompt, acceptedCount, activeGroup,
-    availableQueue, joinQueue, skipTurn, acceptTurn,
+    state, loading, shouldPrompt, acceptedCount, activeGroup, activePlayer,
+    availableQueue, joinQueue, leaveQueue, skipTurn, acceptTurn,
     removeFromCourt, overrideAssign, toggleOverride,
     isOnCourt, isInQueue, getBestTeamAssignment,
   };
